@@ -7,9 +7,11 @@ from tkinter import ttk
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from rapidfuzz import fuzz
-from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
 
 # Функция для подключения к базе данных
 def connect_to_database(db_path):
@@ -109,15 +111,21 @@ def create_pdf_report():
     report_name = f"{root_folder_name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.pdf"
     pdf_path = os.path.join(save_path, report_name)
 
+    # Регистрируем шрифт (путь к шрифту может отличаться на вашей системе)
+    font_path = r"C:\Windows\Fonts\arial.ttf"  # Путь к шрифту Arial
+    pdfmetrics.registerFont(TTFont('Arial', font_path))
+
     # Создаем PDF
     c = canvas.Canvas(pdf_path, pagesize=letter)
     width, height = letter
-    c.setFont("Helvetica", 10)
+
+    # Устанавливаем шрифт Arial (или другой выбранный шрифт)
+    c.setFont("Arial", 10)
 
     # Заголовок
-    c.setFont("Helvetica-Bold", 14)
+    c.setFont("Arial", 14)
     c.drawString(30, height - 30, f"Files Report for '{root_folder_name}'")
-    c.setFont("Helvetica", 10)
+    c.setFont("Arial", 10)
     c.drawString(30, height - 50, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     y_position = height - 70
 
@@ -132,10 +140,10 @@ def create_pdf_report():
     # Для каждого родителя выводим таблицу
     for parent_folder, files in files_by_parent_folder.items():
         # Добавляем название родительской папки в отчет
-        c.setFont("Helvetica-Bold", 12)
+        c.setFont("Arial", 12)
         c.drawString(30, y_position, f"Parent Folder: {parent_folder}")
         y_position -= 20
-        c.setFont("Helvetica", 10)
+        c.setFont("Arial", 10)
 
         # Добавляем заголовки таблицы
         c.drawString(30, y_position, "Filename")
@@ -156,7 +164,7 @@ def create_pdf_report():
             # Если мы близки к низу страницы, создаем новую
             if y_position < 40:
                 c.showPage()  # Переход на новую страницу
-                c.setFont("Helvetica", 10)
+                c.setFont("Arial", 10)
                 y_position = height - 30
                 # Добавляем заголовки на новой странице
                 c.drawString(30, y_position, "Filename")
