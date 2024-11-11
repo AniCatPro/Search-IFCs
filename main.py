@@ -9,9 +9,9 @@ from watchdog.events import FileSystemEventHandler
 from rapidfuzz import fuzz
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
+from reportlab.lib.pagesizes import letter, landscape
 
 # Функция для подключения к базе данных
 def connect_to_database(db_path):
@@ -85,6 +85,23 @@ def update_table():
     apply_highlighting()
 
 
+def wrap_text(text, max_width, font, pdf_canvas):
+    """Функция для переноса текста по ширине."""
+    words = text.split(' ')
+    lines = []
+    current_line = words[0]
+
+    for word in words[1:]:
+        # Проверяем, если слово добавится в строку и она останется в пределах max_width
+        if pdf_canvas.stringWidth(current_line + ' ' + word, font, 10) < max_width:
+            current_line += ' ' + word
+        else:
+            lines.append(current_line)
+            current_line = word
+    lines.append(current_line)  # Добавляем последнюю строку
+
+    return lines
+
 def create_pdf_report():
     # Получаем только подсвеченные файлы (т.е. совпадающие)
     highlighted_files = []
@@ -115,9 +132,9 @@ def create_pdf_report():
     font_path = r"C:\Windows\Fonts\arial.ttf"  # Путь к шрифту Arial
     pdfmetrics.registerFont(TTFont('Arial', font_path))
 
-    # Создаем PDF
-    c = canvas.Canvas(pdf_path, pagesize=letter)
-    width, height = letter
+    # Создаем PDF с горизонтальной ориентацией
+    c = canvas.Canvas(pdf_path, pagesize=landscape(letter))  # Используем landscape для горизонтальной ориентации
+    width, height = landscape(letter)  # Получаем новые размеры страницы
 
     # Устанавливаем шрифт Arial (или другой выбранный шрифт)
     c.setFont("Arial", 10)
@@ -156,9 +173,19 @@ def create_pdf_report():
             filename, parent_folder, path, last_modified, created_by = file
             c.drawString(30, y_position, filename)
             c.drawString(200, y_position, last_modified)
-            c.setFillColor(colors.blue)
-            c.linkURL(path, (400, y_position - 5, width - 30, y_position + 5), relative=0)
-            c.setFillColor(colors.black)
+
+            # Применяем перенос строки для длинного пути
+            path_lines = wrap_text(path, width - 30 - 100, "Arial", c)  # max width для колонки Path
+            for line in path_lines:
+                c.drawString(400, y_position, line)
+                y_position -= 15
+
+            # Кликабельный путь (если путь не слишком длинный)
+            if len(path_lines) == 1 and len(path) <= 40:
+                c.setFillColor(colors.blue)
+                c.linkURL(path, (400, y_position - 5, width - 30, y_position + 5), relative=0)
+                c.setFillColor(colors.black)
+
             y_position -= 20
 
             # Если мы близки к низу страницы, создаем новую
@@ -176,7 +203,6 @@ def create_pdf_report():
     c.save()
     messagebox.showinfo("Info", f"Report saved to {pdf_path}")
 
-# Рекурсивная функция для поиска всех папок "Работа" и добавления файлов в базу
 def scan_work_folders(root_folder):
     for dirpath, dirnames, filenames in os.walk(root_folder):
         if os.path.basename(dirpath) == "Работа":
