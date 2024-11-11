@@ -6,7 +6,10 @@ from tkinter import Tk, filedialog, Label, Button, Entry, messagebox
 from tkinter import ttk
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from rapidfuzz import fuzz  # Импортируем библиотеку для анализа схожести строк
+from rapidfuzz import fuzz
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.pdfgen import canvas
 
 # Функция для подключения к базе данных
 def connect_to_database(db_path):
@@ -36,7 +39,6 @@ def update_file_in_db(parent_folder, path, filename, last_modified, created_by):
 
 # Функция для проверки схожести названий файлов
 def are_filenames_similar(name1, name2, threshold=80):
-    # Убираем расширение и сравниваем только базовые имена
     base1, _ = os.path.splitext(name1)
     base2, _ = os.path.splitext(name2)
     similarity = fuzz.ratio(base1, base2)
@@ -47,24 +49,18 @@ def apply_highlighting():
     rows = cursor.execute("SELECT * FROM files").fetchall()
     file_groups = {}
 
-    # Группируем файлы по папке
     for row in rows:
         parent_folder, path, filename, last_modified, created_by = row[1:]
         key = (parent_folder, last_modified[:10])  # Группируем по папке и дате изменения
-
-        # Группируем файлы по папке и дате
         if key not in file_groups:
             file_groups[key] = []
         file_groups[key].append(row)
 
-    # Подсвечиваем похожие файлы в одной папке
     for group in file_groups.values():
         for i, file1 in enumerate(group):
             for j, file2 in enumerate(group):
                 if i < j:
-                    # Проверяем схожесть названий и дату изменения
                     if are_filenames_similar(file1[3], file2[3]) and file1[4][:10] == file2[4][:10]:
-                        # Проверка только между файлами с разными расширениями
                         if (file1[3].endswith(".rvt") and file2[3].endswith(".ifc")) or \
                            (file1[3].endswith(".ifc") and file2[3].endswith(".rvt")):
                             for f in (file1, file2):
@@ -77,18 +73,100 @@ def update_table():
     for row in tree.get_children():
         tree.delete(row)
 
-    # Получаем все данные из базы и сортируем их
     rows = cursor.execute("SELECT filename, parent_folder, path, last_modified, created_by FROM files").fetchall()
-
-    # Сортируем сначала по папке, затем по имени, а потом по дате изменения
     rows = sorted(rows, key=lambda x: (x[1], x[3], x[0]))
 
     for row in rows:
         filename, parent_folder, path, last_modified, created_by = row
-        # Определение цветовой метки по расширению
         tag = 'rvt' if filename.endswith('.rvt') else 'ifc'
         tree.insert('', 'end', values=row, tags=(tag,))
     apply_highlighting()
+
+
+def create_pdf_report():
+    # Получаем только подсвеченные файлы (т.е. совпадающие)
+    highlighted_files = []
+    for row in tree.get_children():
+        item = tree.item(row)
+        if "highlight" in item["tags"]:
+            highlighted_files.append(item["values"])
+
+    if not highlighted_files:
+        messagebox.showwarning("Warning", "No matching files found to generate a report.")
+        return
+
+    # Путь для сохранения PDF
+    save_path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF Files", "*.pdf")])
+    if not save_path:
+        return
+
+    # Если путь заканчивается на .pdf, отрежем его, чтобы получить путь к директории
+    if save_path.endswith(".pdf"):
+        save_path = os.path.dirname(save_path)
+
+    # Имя отчета (корневая папка + дата)
+    root_folder_name = os.path.basename(folder_path.get())
+    report_name = f"{root_folder_name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.pdf"
+    pdf_path = os.path.join(save_path, report_name)
+
+    # Создаем PDF
+    c = canvas.Canvas(pdf_path, pagesize=letter)
+    width, height = letter
+    c.setFont("Helvetica", 10)
+
+    # Заголовок
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(30, height - 30, f"Files Report for '{root_folder_name}'")
+    c.setFont("Helvetica", 10)
+    c.drawString(30, height - 50, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    y_position = height - 70
+
+    # Группируем файлы по родительской папке
+    files_by_parent_folder = {}
+    for file in highlighted_files:
+        filename, parent_folder, path, last_modified, created_by = file
+        if parent_folder not in files_by_parent_folder:
+            files_by_parent_folder[parent_folder] = []
+        files_by_parent_folder[parent_folder].append(file)
+
+    # Для каждого родителя выводим таблицу
+    for parent_folder, files in files_by_parent_folder.items():
+        # Добавляем название родительской папки в отчет
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(30, y_position, f"Parent Folder: {parent_folder}")
+        y_position -= 20
+        c.setFont("Helvetica", 10)
+
+        # Добавляем заголовки таблицы
+        c.drawString(30, y_position, "Filename")
+        c.drawString(200, y_position, "Last Modified")
+        c.drawString(400, y_position, "Path")
+        y_position -= 20
+
+        # Добавляем строки файлов
+        for file in files:
+            filename, parent_folder, path, last_modified, created_by = file
+            c.drawString(30, y_position, filename)
+            c.drawString(200, y_position, last_modified)
+            c.setFillColor(colors.blue)
+            c.linkURL(path, (400, y_position - 5, width - 30, y_position + 5), relative=0)
+            c.setFillColor(colors.black)
+            y_position -= 20
+
+            # Если мы близки к низу страницы, создаем новую
+            if y_position < 40:
+                c.showPage()  # Переход на новую страницу
+                c.setFont("Helvetica", 10)
+                y_position = height - 30
+                # Добавляем заголовки на новой странице
+                c.drawString(30, y_position, "Filename")
+                c.drawString(200, y_position, "Last Modified")
+                c.drawString(400, y_position, "Path")
+                y_position -= 20
+
+    # Завершаем создание PDF
+    c.save()
+    messagebox.showinfo("Info", f"Report saved to {pdf_path}")
 
 # Рекурсивная функция для поиска всех папок "Работа" и добавления файлов в базу
 def scan_work_folders(root_folder):
@@ -143,40 +221,41 @@ def select_db_path():
 # Запуск мониторинга папки и предварительное сканирование
 def start_monitoring():
     path = folder_path.get()
-    if not os.path.isdir(path):
-        messagebox.showerror("Error", "Invalid folder path")
-        return
-    if not os.path.isfile(db_path.get()):
-        messagebox.showerror("Error", "Database path is not set or invalid")
+    if not path:
+        messagebox.showerror("Error", "Please select a folder to monitor.")
         return
     scan_work_folders(path)
-    observer = Observer()
     event_handler = FileMonitorHandler()
-    observer.schedule(event_handler, path, recursive=True)
+    observer = Observer()
+    observer.schedule(event_handler, path=path, recursive=True)
     observer.start()
-    messagebox.showinfo("Info", f"Monitoring started in folder: {path}")
-    root.after(100, update_table)
 
-# Настройка интерфейса
+# Основное окно
 root = Tk()
-root.title("File Monitor")
-root.geometry("800x600")
+root.title("File Monitor and Report Generator")
 
-# Поля ввода и кнопки выбора
-Label(root, text="Folder to Monitor:").grid(row=0, column=0, padx=10, pady=10, sticky="e")
+# Поля для ввода пути и базы данных
+folder_label = Label(root, text="Select Folder:")
+folder_label.grid(row=0, column=0, padx=10, pady=10)
 folder_path = Entry(root, width=50)
 folder_path.grid(row=0, column=1, padx=10, pady=10)
-Button(root, text="Select Folder", command=select_folder).grid(row=0, column=2, padx=10, pady=10)
+folder_button = Button(root, text="Select", command=select_folder)
+folder_button.grid(row=0, column=2, padx=10, pady=10)
 
-Label(root, text="SQLite Database Path:").grid(row=1, column=0, padx=10, pady=10, sticky="e")
+db_label = Label(root, text="Select Database:")
+db_label.grid(row=1, column=0, padx=10, pady=10)
 db_path = Entry(root, width=50)
 db_path.grid(row=1, column=1, padx=10, pady=10)
-Button(root, text="Select DB Path", command=select_db_path).grid(row=1, column=2, padx=10, pady=10)
+db_button = Button(root, text="Select", command=select_db_path)
+db_button.grid(row=1, column=2, padx=10, pady=10)
 
-Button(root, text="Start Monitoring", command=start_monitoring).grid(row=2, column=1, columnspan=2, pady=10)
+# Кнопка для начала мониторинга
+start_button = Button(root, text="Start Monitoring", command=start_monitoring)
+start_button.grid(row=2, column=0, columnspan=3, padx=10, pady=20)
 
 # Таблица для отображения файлов
-tree = ttk.Treeview(root, columns=("Filename", "Parent Folder", "Path", "Last Modified", "Created By"), show="headings")
+columns = ("Filename", "Parent Folder", "Path", "Last Modified", "Created By")
+tree = ttk.Treeview(root, columns=columns, show="headings")
 tree.heading("Filename", text="Filename")
 tree.heading("Parent Folder", text="Parent Folder")
 tree.heading("Path", text="Path")
@@ -190,6 +269,10 @@ root.grid_columnconfigure(1, weight=1)
 tree.tag_configure("highlight", background="lightgreen")
 tree.tag_configure("rvt", background="lightblue")
 tree.tag_configure("ifc", background="lightyellow")
+
+# Кнопка для создания отчета в PDF
+pdf_button = Button(root, text="To PDF", command=create_pdf_report)
+pdf_button.grid(row=4, column=0, columnspan=3, padx=10, pady=20)
 
 root.mainloop()
 
