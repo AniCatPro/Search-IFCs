@@ -2,7 +2,7 @@ import os
 import sqlite3
 from datetime import datetime
 import getpass
-from tkinter import Tk, filedialog, Label, Button, Entry, messagebox, IntVar, TclError
+from tkinter import Tk, filedialog, Label, Button, Entry, messagebox, IntVar, TclError, Menu
 from tkinter import ttk
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -12,6 +12,8 @@ from reportlab.pdfgen import canvas
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
 from reportlab.lib.pagesizes import letter, landscape
+import openpyxl
+from openpyxl.styles import Font
 
 # Функция для подключения к базе данных
 def connect_to_database(db_path):
@@ -108,7 +110,6 @@ def wrap_text(text, max_width, font, pdf_canvas):
     return lines
 
 def create_pdf_report():
-    # Получаем только подсвеченные файлы (т.е. совпадающие)
     highlighted_files = []
     for row in tree.get_children():
         item = tree.item(row)
@@ -119,40 +120,30 @@ def create_pdf_report():
         messagebox.showwarning("Warning", "No matching files found to generate a report.")
         return
 
-    # Путь для сохранения PDF
     save_path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF Files", "*.pdf")])
     if not save_path:
         return
 
-    # Если путь заканчивается на .pdf, отрежем его, чтобы получить путь к директории
     if save_path.endswith(".pdf"):
         save_path = os.path.dirname(save_path)
 
-    # Имя отчета (корневая папка + дата)
     root_folder_name = os.path.basename(folder_path.get())
     report_name = f"{root_folder_name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.pdf"
     pdf_path = os.path.join(save_path, report_name)
 
-    # Регистрируем шрифт (путь к шрифту может отличаться на вашей системе)
     font_path = r"C:\Windows\Fonts\arial.ttf"  # Путь к шрифту Arial
     pdfmetrics.registerFont(TTFont('Arial', font_path))
 
-    # Создаем PDF с горизонтальной ориентацией
     c = canvas.Canvas(pdf_path, pagesize=landscape(letter))
-    # Используем landscape для горизонтальной ориентации
-    width, height = landscape(letter)  # Получаем новые размеры страницы
+    width, height = landscape(letter)
 
-    # Устанавливаем шрифт Arial (или другой выбранный шрифт)
     c.setFont("Arial", 10)
-
-    # Заголовок
     c.setFont("Arial", 14)
     c.drawString(30, height - 30, f"Files Report for '{root_folder_name}'")
     c.setFont("Arial", 10)
     c.drawString(30, height - 50, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     y_position = height - 70
 
-    # Группируем файлы по родительской папке
     files_by_parent_folder = {}
     for file in highlighted_files:
         filename, parent_folder, path, last_modified, created_by = file
@@ -160,33 +151,27 @@ def create_pdf_report():
             files_by_parent_folder[parent_folder] = []
         files_by_parent_folder[parent_folder].append(file)
 
-    # Для каждого родителя выводим таблицу
     for parent_folder, files in files_by_parent_folder.items():
-        # Добавляем название родительской папки в отчет
         c.setFont("Arial", 12)
         c.drawString(30, y_position, f"Parent Folder: {parent_folder}")
         y_position -= 20
 
         c.setFont("Arial", 10)
-        # Добавляем заголовки таблицы
         c.drawString(30, y_position, "Filename")
         c.drawString(200, y_position, "Last Modified")
         c.drawString(400, y_position, "Path")
         y_position -= 20
 
-        # Добавляем строки файлов
         for file in files:
             filename, parent_folder, path, last_modified, created_by = file
             c.drawString(30, y_position, filename)
             c.drawString(200, y_position, last_modified)
 
-            # Применяем перенос строки для длинного пути
-            path_lines = wrap_text(path, width - 30 - 100, "Arial", c)  # max width для колонки Path
+            path_lines = wrap_text(path, width - 30 - 100, "Arial", c)
             for line in path_lines:
                 c.drawString(400, y_position, line)
                 y_position -= 15
 
-            # Кликабельный путь (если путь не слишком длинный)
             if len(path_lines) == 1 and len(path) <= 40:
                 c.setFillColor(colors.blue)
                 c.linkURL(path, (400, y_position - 5, width - 30, y_position + 5), relative=0)
@@ -194,20 +179,59 @@ def create_pdf_report():
 
             y_position -= 20
 
-            # Если мы близки к низу страницы, создаем новую
             if y_position < 40:
-                c.showPage()  # Переход на новую страницу
+                c.showPage()
                 c.setFont("Arial", 10)
                 y_position = height - 30
-                # Добавляем заголовки на новой странице
                 c.drawString(30, y_position, "Filename")
                 c.drawString(200, y_position, "Last Modified")
                 c.drawString(400, y_position, "Path")
                 y_position -= 20
 
-    # Завершаем создание PDF
     c.save()
     messagebox.showinfo("Info", f"Report saved to {pdf_path}")
+
+def export_to_excel():
+    highlighted_files = []
+    for row in tree.get_children():
+        item = tree.item(row)
+        if "highlight" in item["tags"]:
+            highlighted_files.append(item["values"])
+
+    if not highlighted_files:
+        messagebox.showwarning("Warning", "No highlighted files found for export.")
+        return
+
+    save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel Files", "*.xlsx")])
+    if not save_path:
+        return
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "File Report"
+
+    headers = ["Filename", "Parent Folder", "Path", "Last Modified", "Created By"]
+    sheet.append(headers)
+
+    for header in headers:
+        cell = sheet[f'{chr(65 + headers.index(header))}1']
+        cell.font = Font(bold=True)
+
+    for file in highlighted_files:
+        sheet.append(file)
+
+    workbook.save(save_path)
+    messagebox.showinfo("Info", f"Excel report saved to {save_path}")
+
+def copy_path():
+    selected_item = tree.focus()
+    if not selected_item:
+        messagebox.showwarning("Warning", "No file selected!")
+        return
+    path = tree.item(selected_item, "values")[2]
+    root.clipboard_clear()
+    root.clipboard_append(path)
+    messagebox.showinfo("Info", f"Path copied to clipboard:\n{path}")
 
 def scan_work_folders(root_folder):
     for dirpath, dirnames, filenames in os.walk(root_folder):
@@ -220,7 +244,6 @@ def scan_work_folders(root_folder):
                     created_by = getpass.getuser()
                     update_file_in_db(parent_folder, file_path, filename, last_modified, created_by)
 
-# Класс для обработки событий изменения файлов
 class FileMonitorHandler(FileSystemEventHandler):
     def process_file(self, event):
         if not event.is_directory:
@@ -243,14 +266,12 @@ class FileMonitorHandler(FileSystemEventHandler):
             conn.commit()
             update_table()
 
-# Выбор папки для мониторинга
 def select_folder():
     selected_folder = filedialog.askdirectory()
     if selected_folder:
         folder_path.delete(0, 'end')
         folder_path.insert(0, selected_folder)
 
-# Выбор пути для SQLite базы
 def select_db_path():
     selected_db = filedialog.asksaveasfilename(defaultextension=".db", filetypes=[("SQLite Database", "*.db")])
     if selected_db:
@@ -258,7 +279,6 @@ def select_db_path():
         db_path.insert(0, selected_db)
         connect_to_database(selected_db)
 
-# Запуск мониторинга папки и предварительное сканирование
 def start_monitoring():
     path = folder_path.get()
     if not path:
@@ -273,11 +293,9 @@ def start_monitoring():
 def update_highlighting():
     apply_highlighting()
 
-# Основное окно
 root = Tk()
 root.title("File Monitor and Report Generator")
 
-# Поля для ввода пути и базы данных
 folder_label = Label(root, text="Select Folder:")
 folder_label.grid(row=0, column=0, padx=10, pady=10)
 folder_path = Entry(root, width=50)
@@ -292,22 +310,18 @@ db_path.grid(row=1, column=1, padx=10, pady=10)
 db_button = Button(root, text="Select", command=select_db_path)
 db_button.grid(row=1, column=2, padx=10, pady=10)
 
-# Поле для ввода порога схожести
 similarity_threshold_label = Label(root, text="Similarity threshold:")
 similarity_threshold_label.grid(row=2, column=0, padx=10, pady=10)
 similarity_threshold = IntVar(value=80)
 similarity_threshold_entry = Entry(root, textvariable=similarity_threshold, width=5)
 similarity_threshold_entry.grid(row=2, column=1, padx=10, pady=10, sticky="w")
 
-# Кнопка для применения нового порога схожести
 apply_button = Button(root, text="Apply", command=update_highlighting)
 apply_button.grid(row=2, column=2, padx=10, pady=10)
 
-# Кнопка для начала мониторинга
 start_button = Button(root, text="Start Monitoring", command=start_monitoring)
 start_button.grid(row=3, column=0, columnspan=3, padx=10, pady=20)
 
-# Таблица для отображения файлов
 columns = ("Filename", "Parent Folder", "Path", "Last Modified", "Created By")
 tree = ttk.Treeview(root, columns=columns, show="headings")
 tree.heading("Filename", text="Filename")
@@ -322,12 +336,16 @@ tree.tag_configure("highlight", background="lightgreen")
 tree.tag_configure("rvt", background="lightblue")
 tree.tag_configure("ifc", background="lightyellow")
 
-# Кнопка для создания отчета в PDF
 pdf_button = Button(root, text="To PDF", command=create_pdf_report)
-pdf_button.grid(row=5, column=0, columnspan=3, padx=10, pady=20)
+pdf_button.grid(row=5, column=0, padx=10, pady=10)
+
+excel_button = Button(root, text="To Excel", command=export_to_excel)
+excel_button.grid(row=5, column=1, padx=10, pady=10)
+
+copy_button = Button(root, text="Copy Path", command=copy_path)
+copy_button.grid(row=5, column=2, padx=10, pady=10)
 
 root.mainloop()
 
-# Закрытие базы данных при выходе
 if conn:
     conn.close()
