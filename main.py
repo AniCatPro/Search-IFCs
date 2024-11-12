@@ -2,7 +2,7 @@ import os
 import sqlite3
 from datetime import datetime
 import getpass
-from tkinter import Tk, filedialog, Label, Button, Entry, messagebox
+from tkinter import Tk, filedialog, Label, Button, Entry, messagebox, IntVar, TclError
 from tkinter import ttk
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -17,25 +17,26 @@ from reportlab.lib.pagesizes import letter, landscape
 def connect_to_database(db_path):
     global conn, cursor
     if os.path.exists(db_path):
-        os.remove(db_path)  # Удаляем существующую базу, чтобы создать новую с правильной структурой
-
+        os.remove(db_path)  # Удаляем существующую базу
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS files (
-                        id INTEGER PRIMARY KEY,
-                        parent_folder TEXT,
-                        path TEXT,
-                        filename TEXT,
-                        last_modified TEXT,
-                        created_by TEXT
-                    )''')
+                      id INTEGER PRIMARY KEY,
+                      parent_folder TEXT,
+                      path TEXT,
+                      filename TEXT,
+                      last_modified TEXT,
+                      created_by TEXT
+                      )''')
     conn.commit()
     messagebox.showinfo("Info", "Database connected successfully!")
 
 # Функция для добавления или обновления файла в базе
 def update_file_in_db(parent_folder, path, filename, last_modified, created_by):
-    cursor.execute('''INSERT OR REPLACE INTO files (parent_folder, path, filename, last_modified, created_by)
-                      VALUES (?, ?, ?, ?, ?)''', (parent_folder, path, filename, last_modified, created_by))
+    cursor.execute('''INSERT OR REPLACE INTO files
+                      (parent_folder, path, filename, last_modified, created_by)
+                      VALUES (?, ?, ?, ?, ?)''',
+                   (parent_folder, path, filename, last_modified, created_by))
     conn.commit()
     update_table()
 
@@ -48,9 +49,17 @@ def are_filenames_similar(name1, name2, threshold=80):
 
 # Функция для подсветки файлов с похожими именами и одинаковой датой
 def apply_highlighting():
+    # Сначала убираем все текущие подсветки
+    for row in tree.get_children():
+        tree.item(row, tags=("rvt" if tree.item(row, "values")[0].endswith('.rvt') else "ifc"))
+
+    try:
+        threshold = similarity_threshold.get()
+    except TclError:
+        return  # Если значение не числовое, просто выходим из функции
+
     rows = cursor.execute("SELECT * FROM files").fetchall()
     file_groups = {}
-
     for row in rows:
         parent_folder, path, filename, last_modified, created_by = row[1:]
         key = (parent_folder, last_modified[:10])  # Группируем по папке и дате изменения
@@ -62,35 +71,32 @@ def apply_highlighting():
         for i, file1 in enumerate(group):
             for j, file2 in enumerate(group):
                 if i < j:
-                    if are_filenames_similar(file1[3], file2[3]) and file1[4][:10] == file2[4][:10]:
+                    if are_filenames_similar(file1[3], file2[3], threshold) and file1[4][:10] == file2[4][:10]:
                         if (file1[3].endswith(".rvt") and file2[3].endswith(".ifc")) or \
                            (file1[3].endswith(".ifc") and file2[3].endswith(".rvt")):
                             for f in (file1, file2):
                                 for row in tree.get_children():
                                     if tree.item(row, "values")[2] == f[2]:  # Сравниваем путь
-                                        tree.item(row, tags="highlight")
+                                        current_tags = tree.item(row, "tags")
+                                        tree.item(row, tags=current_tags + ("highlight",))
 
 # Функция для обновления таблицы в интерфейсе
 def update_table():
     for row in tree.get_children():
         tree.delete(row)
-
     rows = cursor.execute("SELECT filename, parent_folder, path, last_modified, created_by FROM files").fetchall()
     rows = sorted(rows, key=lambda x: (x[1], x[3], x[0]))
-
     for row in rows:
         filename, parent_folder, path, last_modified, created_by = row
         tag = 'rvt' if filename.endswith('.rvt') else 'ifc'
         tree.insert('', 'end', values=row, tags=(tag,))
     apply_highlighting()
 
-
 def wrap_text(text, max_width, font, pdf_canvas):
     """Функция для переноса текста по ширине."""
     words = text.split(' ')
     lines = []
     current_line = words[0]
-
     for word in words[1:]:
         # Проверяем, если слово добавится в строку и она останется в пределах max_width
         if pdf_canvas.stringWidth(current_line + ' ' + word, font, 10) < max_width:
@@ -99,7 +105,6 @@ def wrap_text(text, max_width, font, pdf_canvas):
             lines.append(current_line)
             current_line = word
     lines.append(current_line)  # Добавляем последнюю строку
-
     return lines
 
 def create_pdf_report():
@@ -133,7 +138,8 @@ def create_pdf_report():
     pdfmetrics.registerFont(TTFont('Arial', font_path))
 
     # Создаем PDF с горизонтальной ориентацией
-    c = canvas.Canvas(pdf_path, pagesize=landscape(letter))  # Используем landscape для горизонтальной ориентации
+    c = canvas.Canvas(pdf_path, pagesize=landscape(letter))
+    # Используем landscape для горизонтальной ориентации
     width, height = landscape(letter)  # Получаем новые размеры страницы
 
     # Устанавливаем шрифт Arial (или другой выбранный шрифт)
@@ -160,8 +166,8 @@ def create_pdf_report():
         c.setFont("Arial", 12)
         c.drawString(30, y_position, f"Parent Folder: {parent_folder}")
         y_position -= 20
-        c.setFont("Arial", 10)
 
+        c.setFont("Arial", 10)
         # Добавляем заголовки таблицы
         c.drawString(30, y_position, "Filename")
         c.drawString(200, y_position, "Last Modified")
@@ -264,6 +270,9 @@ def start_monitoring():
     observer.schedule(event_handler, path=path, recursive=True)
     observer.start()
 
+def update_highlighting():
+    apply_highlighting()
+
 # Основное окно
 root = Tk()
 root.title("File Monitor and Report Generator")
@@ -283,9 +292,20 @@ db_path.grid(row=1, column=1, padx=10, pady=10)
 db_button = Button(root, text="Select", command=select_db_path)
 db_button.grid(row=1, column=2, padx=10, pady=10)
 
+# Поле для ввода порога схожести
+similarity_threshold_label = Label(root, text="Similarity threshold:")
+similarity_threshold_label.grid(row=2, column=0, padx=10, pady=10)
+similarity_threshold = IntVar(value=80)
+similarity_threshold_entry = Entry(root, textvariable=similarity_threshold, width=5)
+similarity_threshold_entry.grid(row=2, column=1, padx=10, pady=10, sticky="w")
+
+# Кнопка для применения нового порога схожести
+apply_button = Button(root, text="Apply", command=update_highlighting)
+apply_button.grid(row=2, column=2, padx=10, pady=10)
+
 # Кнопка для начала мониторинга
 start_button = Button(root, text="Start Monitoring", command=start_monitoring)
-start_button.grid(row=2, column=0, columnspan=3, padx=10, pady=20)
+start_button.grid(row=3, column=0, columnspan=3, padx=10, pady=20)
 
 # Таблица для отображения файлов
 columns = ("Filename", "Parent Folder", "Path", "Last Modified", "Created By")
@@ -295,18 +315,16 @@ tree.heading("Parent Folder", text="Parent Folder")
 tree.heading("Path", text="Path")
 tree.heading("Last Modified", text="Last Modified")
 tree.heading("Created By", text="Created By")
-tree.grid(row=3, column=0, columnspan=3, padx=10, pady=20, sticky="nsew")
-
-root.grid_rowconfigure(3, weight=1)
+tree.grid(row=4, column=0, columnspan=3, padx=10, pady=20, sticky="nsew")
+root.grid_rowconfigure(4, weight=1)
 root.grid_columnconfigure(1, weight=1)
-
 tree.tag_configure("highlight", background="lightgreen")
 tree.tag_configure("rvt", background="lightblue")
 tree.tag_configure("ifc", background="lightyellow")
 
 # Кнопка для создания отчета в PDF
 pdf_button = Button(root, text="To PDF", command=create_pdf_report)
-pdf_button.grid(row=4, column=0, columnspan=3, padx=10, pady=20)
+pdf_button.grid(row=5, column=0, columnspan=3, padx=10, pady=20)
 
 root.mainloop()
 
