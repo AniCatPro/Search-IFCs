@@ -2,8 +2,7 @@ import os
 import sqlite3
 from datetime import datetime
 import getpass
-from tkinter import Tk, filedialog, Label, Button, Entry, messagebox, IntVar, Checkbutton, TclError
-from tkinter import ttk
+from tkinter import Tk, filedialog, Label, Button, Entry, messagebox, IntVar, Checkbutton, TclError, ttk
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from rapidfuzz import fuzz
@@ -23,24 +22,26 @@ def connect_to_database(db_path):
         os.remove(db_path)  # Удаляем существующую базу
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS files (
-                      id INTEGER PRIMARY KEY,
-                      parent_folder TEXT,
-                      path TEXT,
-                      filename TEXT,
-                      last_modified TEXT,
-                      created_by TEXT
-                      )''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS files (
+            id INTEGER PRIMARY KEY,
+            parent_folder TEXT,
+            path TEXT,
+            filename TEXT,
+            last_modified TEXT,
+            created_by TEXT
+        )
+    ''')
     conn.commit()
     messagebox.showinfo("Info", "Database connected successfully!")
 
 
 # Функция для добавления или обновления файла в базе
 def update_file_in_db(parent_folder, path, filename, last_modified, created_by):
-    cursor.execute('''INSERT OR REPLACE INTO files
-                      (parent_folder, path, filename, last_modified, created_by)
-                      VALUES (?, ?, ?, ?, ?)''',
-                   (parent_folder, path, filename, last_modified, created_by))
+    cursor.execute('''
+        INSERT OR REPLACE INTO files (parent_folder, path, filename, last_modified, created_by)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (parent_folder, path, filename, last_modified, created_by))
     conn.commit()
     update_table()
 
@@ -57,7 +58,9 @@ def are_filenames_similar(name1, name2, threshold=80):
 def apply_highlighting():
     # Сначала убираем все текущие подсветки
     for row in tree.get_children():
-        tree.item(row, tags=("rvt" if tree.item(row, "values")[0].endswith('.rvt') else "ifc"))
+        tree.item(row, tags=(
+            "rvt" if tree.item(row, "values")[0].endswith('.rvt') else "ifc" if tree.item(row, "values")[0].endswith(
+                '.ifc') else "dwg"))
 
     try:
         threshold = similarity_threshold.get()
@@ -142,18 +145,17 @@ def create_pdf_report():
 
     font_path = r"C:\Windows\Fonts\arial.ttf"  # Путь к шрифту Arial
     pdfmetrics.registerFont(TTFont('Arial', font_path))
-
     c = canvas.Canvas(pdf_path, pagesize=landscape(letter))
     width, height = landscape(letter)
-
     c.setFont("Arial", 10)
     c.setFont("Arial", 14)
     c.drawString(30, height - 30, f"Files Report for '{root_folder_name}'")
     c.setFont("Arial", 10)
     c.drawString(30, height - 50, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    y_position = height - 70
 
+    y_position = height - 70
     files_by_parent_folder = {}
+
     for file in highlighted_files:
         filename, parent_folder, path, last_modified, created_by = file
         if parent_folder not in files_by_parent_folder:
@@ -175,7 +177,6 @@ def create_pdf_report():
             filename, parent_folder, path, last_modified, created_by = file
             c.drawString(30, y_position, filename)
             c.drawString(200, y_position, last_modified)
-
             path_lines = wrap_text(path, width - 30 - 100, "Arial", c)
             for line in path_lines:
                 c.drawString(400, y_position, line)
@@ -185,8 +186,7 @@ def create_pdf_report():
                 c.setFillColor(colors.blue)
                 c.linkURL(path, (400, y_position - 5, width - 30, y_position + 5), relative=0)
                 c.setFillColor(colors.black)
-
-            y_position -= 20
+                y_position -= 20
 
             if y_position < 40:
                 c.showPage()
@@ -219,10 +219,8 @@ def export_to_excel():
     workbook = openpyxl.Workbook()
     sheet = workbook.active
     sheet.title = "File Report"
-
     headers = ["Filename", "Parent Folder", "Path", "Last Modified", "Created By"]
     sheet.append(headers)
-
     for header in headers:
         cell = sheet[f'{chr(65 + headers.index(header))}1']
         cell.font = Font(bold=True)
@@ -239,6 +237,7 @@ def copy_path():
     if not selected_item:
         messagebox.showwarning("Warning", "No file selected!")
         return
+
     path = tree.item(selected_item, "values")[2]
     root.clipboard_clear()
     root.clipboard_append(path)
@@ -312,6 +311,7 @@ def start_monitoring():
     if not path:
         messagebox.showerror("Error", "Please select a folder to monitor.")
         return
+
     scan_work_folders(path)
     event_handler = FileMonitorHandler()
     observer = Observer()
@@ -326,6 +326,7 @@ def update_highlighting():
 root = Tk()
 root.title("File Monitor and Report Generator")
 
+# UI Elements
 folder_label = Label(root, text="Select Folder:")
 folder_label.grid(row=0, column=0, padx=10, pady=10)
 folder_path = Entry(root, width=50)
@@ -345,7 +346,6 @@ similarity_threshold_label.grid(row=2, column=0, padx=10, pady=10)
 similarity_threshold = IntVar(value=80)
 similarity_threshold_entry = Entry(root, textvariable=similarity_threshold, width=5)
 similarity_threshold_entry.grid(row=2, column=1, padx=10, pady=10, sticky="w")
-
 apply_button = Button(root, text="Apply", command=update_highlighting)
 apply_button.grid(row=2, column=2, padx=10, pady=10)
 
@@ -368,8 +368,10 @@ tree.heading("Path", text="Path")
 tree.heading("Last Modified", text="Last Modified")
 tree.heading("Created By", text="Created By")
 tree.grid(row=5, column=0, columnspan=3, padx=10, pady=20, sticky="nsew")
+
 root.grid_rowconfigure(5, weight=1)
 root.grid_columnconfigure(1, weight=1)
+
 tree.tag_configure("highlight", background="lightgreen")
 tree.tag_configure("rvt", background="lightblue")
 tree.tag_configure("dwg", background="lavender")
