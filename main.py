@@ -2,7 +2,7 @@ import os
 import sqlite3
 from datetime import datetime
 import getpass
-from tkinter import Tk, filedialog, Label, Button, Entry, messagebox, IntVar, TclError, Menu
+from tkinter import Tk, filedialog, Label, Button, Entry, messagebox, IntVar, Checkbutton, TclError
 from tkinter import ttk
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -14,6 +14,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.lib.pagesizes import letter, landscape
 import openpyxl
 from openpyxl.styles import Font
+
 
 # Функция для подключения к базе данных
 def connect_to_database(db_path):
@@ -33,6 +34,7 @@ def connect_to_database(db_path):
     conn.commit()
     messagebox.showinfo("Info", "Database connected successfully!")
 
+
 # Функция для добавления или обновления файла в базе
 def update_file_in_db(parent_folder, path, filename, last_modified, created_by):
     cursor.execute('''INSERT OR REPLACE INTO files
@@ -42,12 +44,14 @@ def update_file_in_db(parent_folder, path, filename, last_modified, created_by):
     conn.commit()
     update_table()
 
+
 # Функция для проверки схожести названий файлов
 def are_filenames_similar(name1, name2, threshold=80):
     base1, _ = os.path.splitext(name1)
     base2, _ = os.path.splitext(name2)
     similarity = fuzz.ratio(base1, base2)
     return similarity >= threshold
+
 
 # Функция для подсветки файлов с похожими именами и одинаковой датой
 def apply_highlighting():
@@ -75,12 +79,15 @@ def apply_highlighting():
                 if i < j:
                     if are_filenames_similar(file1[3], file2[3], threshold) and file1[4][:10] == file2[4][:10]:
                         if (file1[3].endswith(".rvt") and file2[3].endswith(".ifc")) or \
-                           (file1[3].endswith(".ifc") and file2[3].endswith(".rvt")):
+                                (file1[3].endswith(".ifc") and file2[3].endswith(".rvt")) or \
+                                (file1[3].endswith(".dwg") and file2[3].endswith(".ifc")) or \
+                                (file1[3].endswith(".ifc") and file2[3].endswith(".dwg")):
                             for f in (file1, file2):
                                 for row in tree.get_children():
                                     if tree.item(row, "values")[2] == f[2]:  # Сравниваем путь
                                         current_tags = tree.item(row, "tags")
                                         tree.item(row, tags=current_tags + ("highlight",))
+
 
 # Функция для обновления таблицы в интерфейсе
 def update_table():
@@ -90,9 +97,10 @@ def update_table():
     rows = sorted(rows, key=lambda x: (x[1], x[3], x[0]))
     for row in rows:
         filename, parent_folder, path, last_modified, created_by = row
-        tag = 'rvt' if filename.endswith('.rvt') else 'ifc'
+        tag = 'rvt' if filename.endswith('.rvt') else ('dwg' if filename.endswith('.dwg') else 'ifc')
         tree.insert('', 'end', values=row, tags=(tag,))
     apply_highlighting()
+
 
 def wrap_text(text, max_width, font, pdf_canvas):
     """Функция для переноса текста по ширине."""
@@ -108,6 +116,7 @@ def wrap_text(text, max_width, font, pdf_canvas):
             current_line = word
     lines.append(current_line)  # Добавляем последнюю строку
     return lines
+
 
 def create_pdf_report():
     highlighted_files = []
@@ -191,6 +200,7 @@ def create_pdf_report():
     c.save()
     messagebox.showinfo("Info", f"Report saved to {pdf_path}")
 
+
 def export_to_excel():
     highlighted_files = []
     for row in tree.get_children():
@@ -223,6 +233,7 @@ def export_to_excel():
     workbook.save(save_path)
     messagebox.showinfo("Info", f"Excel report saved to {save_path}")
 
+
 def copy_path():
     selected_item = tree.focus()
     if not selected_item:
@@ -233,23 +244,37 @@ def copy_path():
     root.clipboard_append(path)
     messagebox.showinfo("Info", f"Path copied to clipboard:\n{path}")
 
+
 def scan_work_folders(root_folder):
+    file_extensions = []
+    if monitor_rvt_ifc.get():
+        file_extensions.extend(['.rvt', '.ifc'])
+    if monitor_dwg_ifc.get():
+        file_extensions.extend(['.dwg', '.ifc'])
+
     for dirpath, dirnames, filenames in os.walk(root_folder):
         if os.path.basename(dirpath) == "Работа":
             parent_folder = os.path.basename(os.path.dirname(dirpath))
             for filename in filenames:
-                if filename.endswith(('.rvt', '.ifc')):
+                if any(filename.endswith(ext) for ext in file_extensions):
                     file_path = os.path.join(dirpath, filename)
                     last_modified = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
                     created_by = getpass.getuser()
                     update_file_in_db(parent_folder, file_path, filename, last_modified, created_by)
 
+
 class FileMonitorHandler(FileSystemEventHandler):
     def process_file(self, event):
+        file_extensions = []
+        if monitor_rvt_ifc.get():
+            file_extensions.extend(['.rvt', '.ifc'])
+        if monitor_dwg_ifc.get():
+            file_extensions.extend(['.dwg', '.ifc'])
+
         if not event.is_directory:
             filename = os.path.basename(event.src_path)
             parent_folder = os.path.basename(os.path.dirname(os.path.dirname(event.src_path)))
-            if filename.endswith(('.rvt', '.ifc')) and "Работа" in os.path.dirname(event.src_path):
+            if any(filename.endswith(ext) for ext in file_extensions) and "Работа" in os.path.dirname(event.src_path):
                 last_modified = datetime.fromtimestamp(os.path.getmtime(event.src_path)).strftime('%Y-%m-%d %H:%M:%S')
                 created_by = getpass.getuser()
                 update_file_in_db(parent_folder, event.src_path, filename, last_modified, created_by)
@@ -266,11 +291,13 @@ class FileMonitorHandler(FileSystemEventHandler):
             conn.commit()
             update_table()
 
+
 def select_folder():
     selected_folder = filedialog.askdirectory()
     if selected_folder:
         folder_path.delete(0, 'end')
         folder_path.insert(0, selected_folder)
+
 
 def select_db_path():
     selected_db = filedialog.asksaveasfilename(defaultextension=".db", filetypes=[("SQLite Database", "*.db")])
@@ -278,6 +305,7 @@ def select_db_path():
         db_path.delete(0, 'end')
         db_path.insert(0, selected_db)
         connect_to_database(selected_db)
+
 
 def start_monitoring():
     path = folder_path.get()
@@ -290,8 +318,10 @@ def start_monitoring():
     observer.schedule(event_handler, path=path, recursive=True)
     observer.start()
 
+
 def update_highlighting():
     apply_highlighting()
+
 
 root = Tk()
 root.title("File Monitor and Report Generator")
@@ -319,8 +349,16 @@ similarity_threshold_entry.grid(row=2, column=1, padx=10, pady=10, sticky="w")
 apply_button = Button(root, text="Apply", command=update_highlighting)
 apply_button.grid(row=2, column=2, padx=10, pady=10)
 
+# Настройка для выбора расширений файлов
+monitor_rvt_ifc = IntVar(value=1)
+monitor_dwg_ifc = IntVar(value=0)
+rvt_ifc_checkbox = Checkbutton(root, text=".rvt and .ifc", variable=monitor_rvt_ifc)
+rvt_ifc_checkbox.grid(row=3, column=0, padx=10, pady=10)
+dwg_ifc_checkbox = Checkbutton(root, text=".dwg and .ifc", variable=monitor_dwg_ifc)
+dwg_ifc_checkbox.grid(row=3, column=1, padx=10, pady=10)
+
 start_button = Button(root, text="Start Monitoring", command=start_monitoring)
-start_button.grid(row=3, column=0, columnspan=3, padx=10, pady=20)
+start_button.grid(row=4, column=0, columnspan=3, padx=10, pady=20)
 
 columns = ("Filename", "Parent Folder", "Path", "Last Modified", "Created By")
 tree = ttk.Treeview(root, columns=columns, show="headings")
@@ -329,21 +367,22 @@ tree.heading("Parent Folder", text="Parent Folder")
 tree.heading("Path", text="Path")
 tree.heading("Last Modified", text="Last Modified")
 tree.heading("Created By", text="Created By")
-tree.grid(row=4, column=0, columnspan=3, padx=10, pady=20, sticky="nsew")
-root.grid_rowconfigure(4, weight=1)
+tree.grid(row=5, column=0, columnspan=3, padx=10, pady=20, sticky="nsew")
+root.grid_rowconfigure(5, weight=1)
 root.grid_columnconfigure(1, weight=1)
 tree.tag_configure("highlight", background="lightgreen")
 tree.tag_configure("rvt", background="lightblue")
+tree.tag_configure("dwg", background="lavender")
 tree.tag_configure("ifc", background="lightyellow")
 
 pdf_button = Button(root, text="To PDF", command=create_pdf_report)
-pdf_button.grid(row=5, column=0, padx=10, pady=10)
+pdf_button.grid(row=6, column=0, padx=10, pady=10)
 
 excel_button = Button(root, text="To Excel", command=export_to_excel)
-excel_button.grid(row=5, column=1, padx=10, pady=10)
+excel_button.grid(row=6, column=1, padx=10, pady=10)
 
 copy_button = Button(root, text="Copy Path", command=copy_path)
-copy_button.grid(row=5, column=2, padx=10, pady=10)
+copy_button.grid(row=6, column=2, padx=10, pady=10)
 
 root.mainloop()
 
