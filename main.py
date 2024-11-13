@@ -151,11 +151,11 @@ def create_pdf_report():
         files_by_parent_folder[parent_folder].append(file)
     for parent_folder, files in files_by_parent_folder.items():
         c.setFont("Arial", 12)
-        c.drawString(30, y_position, f"Родительская Папка: {parent_folder}")
+        c.drawString(30, y_position, f"Папка: {parent_folder}")
         y_position -= 20
         c.setFont("Arial", 10)
         c.drawString(30, y_position, "Имя файла")
-        c.drawString(200, y_position, "Последнее Изменение")
+        c.drawString(200, y_position, "Последнее изм.")
         c.drawString(300, y_position, "Путь")
         y_position -= 20
         for file in files:
@@ -177,7 +177,7 @@ def create_pdf_report():
                 c.setFont("Arial", 10)
                 y_position = height - 30
                 c.drawString(30, y_position, "Имя файла")
-                c.drawString(200, y_position, "Последнее Изменение")
+                c.drawString(200, y_position, "Последнее изм.")
                 c.drawString(300, y_position, "Путь")
                 y_position -= 20
     c.save()
@@ -417,7 +417,7 @@ def update_highlighting():
 
 
 root = Tk()
-root.title("Мониторинг и генерация отчетов")
+root.title("Ищем актуальные IFC")
 
 use_existing_db = IntVar(value=0)
 use_existing_checkbox = Checkbutton(root, text="Использовать старую БД", variable=use_existing_db,
@@ -447,26 +447,26 @@ db_folder_path.grid(row=2, column=1, padx=10, pady=10)
 db_folder_button = Button(root, text="Выбрать", command=select_db_folder)
 db_folder_button.grid(row=2, column=2, padx=10, pady=10)
 
-existing_db_label = Label(root, text="Путь к старой БД:")
+existing_db_label = Label(root, text="Выбрать файл старой базы данных:")
 existing_db_label.grid(row=3, column=0, padx=10, pady=10)
 
 old_db_path = Entry(root, width=50, state='disabled')
 old_db_path.grid(row=3, column=1, padx=10, pady=10)
 
-existing_db_button = Button(root, text="Выбрать старую БД", command=select_existing_db, state='disabled')
+existing_db_button = Button(root, text="Выбрать", command=select_existing_db, state='disabled')
 existing_db_button.grid(row=3, column=2, padx=10, pady=10)
 
 compare_button = Button(root, text="Сравнить", command=compare_databases, state='disabled')
 compare_button.grid(row=4, column=1, padx=10, pady=10)
 
-similarity_threshold_label = Label(root, text="Порог схожести:")
+similarity_threshold_label = Label(root, text="% схожести:")
 similarity_threshold_label.grid(row=5, column=0, padx=10, pady=10)
 
 similarity_threshold = IntVar(value=80)
 similarity_threshold_entry = Entry(root, textvariable=similarity_threshold, width=5)
 similarity_threshold_entry.grid(row=5, column=1, padx=10, pady=10, sticky="w")
 
-apply_button = Button(root, text="Применить", command=update_highlighting)
+apply_button = Button(root, text="Применить %", command=update_highlighting)
 apply_button.grid(row=5, column=2, padx=10, pady=10)
 
 monitor_rvt_ifc = IntVar(value=1)
@@ -484,10 +484,10 @@ start_button.grid(row=7, column=0, columnspan=3, padx=10, pady=20)
 columns = ("Имя файла", "Родительская Папка", "Путь", "Последнее Изменение", "Создано")
 tree = ttk.Treeview(root, columns=columns, show="headings")
 tree.heading("Имя файла", text="Имя файла")
-tree.heading("Родительская Папка", text="Родительская Папка")
+tree.heading("Родительская Папка", text="Папка")
 tree.heading("Путь", text="Путь")
-tree.heading("Последнее Изменение", text="Последнее Изменение")
-tree.heading("Создано", text="Создано")
+tree.heading("Последнее Изменение", text="Последнее изм.")
+tree.heading("Создано", text="Кем создано")
 tree.grid(row=8, column=0, columnspan=3, padx=10, pady=20, sticky="nsew")
 
 root.grid_rowconfigure(8, weight=1)
@@ -501,10 +501,10 @@ tree.tag_configure("changed", background="orange")
 tree.tag_configure("new", background="lightgreen")
 tree.tag_configure("missing", background="red")
 
-pdf_button = Button(root, text="В PDF", command=create_pdf_report)
+pdf_button = Button(root, text="Отчет PDF", command=create_pdf_report)
 pdf_button.grid(row=9, column=0, padx=10, pady=10)
 
-excel_button = Button(root, text="В Excel", command=export_to_excel)
+excel_button = Button(root, text="Отчет Excel", command=export_to_excel)
 excel_button.grid(row=9, column=1, padx=10, pady=10)
 
 copy_button = Button(root, text="Скопировать путь", command=copy_path)
