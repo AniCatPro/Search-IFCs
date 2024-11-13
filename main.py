@@ -15,14 +15,8 @@ import openpyxl
 from openpyxl.styles import Font
 
 
-def connect_to_database(db_folder, folder_name):
+def connect_to_database(db_path):
     global conn, cursor
-    db_name = f"BD_{folder_name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.db"
-    db_path = os.path.join(db_folder, db_name)
-
-    if os.path.exists(db_path):
-        os.remove(db_path)
-
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
@@ -36,7 +30,7 @@ def connect_to_database(db_folder, folder_name):
         )
     ''')
     conn.commit()
-    messagebox.showinfo("Информация", f"Подключение к базе данных '{db_name}' успешно!")
+    messagebox.showinfo("Информация", "Подключение к базе данных успешно!")
 
 
 def update_file_in_db(parent_folder, path, filename, last_modified, created_by):
@@ -301,6 +295,13 @@ def select_db_folder():
         db_folder_path.insert(0, selected_db_folder)
 
 
+def select_existing_db():
+    existing_db = filedialog.askopenfilename(filetypes=[("SQLite Database", "*.db")])
+    if existing_db:
+        connect_to_database(existing_db)
+        update_table()
+
+
 def start_monitoring():
     path = folder_path.get()
     db_folder = db_folder_path.get()
@@ -314,13 +315,33 @@ def start_monitoring():
         return
 
     folder_name = os.path.basename(path)
-    connect_to_database(db_folder, folder_name)
+    db_name = f"BD_{folder_name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.db"
+    db_path = os.path.join(db_folder, db_name)
+    connect_to_database(db_path)
 
     scan_work_folders(path)
     event_handler = FileMonitorHandler()
     observer = Observer()
     observer.schedule(event_handler, path=path, recursive=True)
     observer.start()
+
+
+def toggle_db_mode():
+    if use_existing_db.get():
+        # Disabling new DB creation controls
+        folder_button.config(state='disabled')
+        db_folder_button.config(state='disabled')
+        # Enabling old DB selection
+        existing_db_button.config(state='normal')
+        # Clear Treeview
+        for row in tree.get_children():
+            tree.delete(row)
+    else:
+        # Enabling new DB creation controls
+        folder_button.config(state='normal')
+        db_folder_button.config(state='normal')
+        # Disabling old DB selection
+        existing_db_button.config(state='disabled')
 
 
 def update_highlighting():
@@ -330,46 +351,54 @@ def update_highlighting():
 root = Tk()
 root.title("Мониторинг и генерация отчетов")
 
-# UI Elements
+use_existing_db = IntVar(value=0)
+
+use_existing_checkbox = Checkbutton(root, text="Использовать старую БД", variable=use_existing_db,
+                                    command=toggle_db_mode)
+use_existing_checkbox.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+
 folder_label = Label(root, text="Выбрать папку:")
-folder_label.grid(row=0, column=0, padx=10, pady=10)
+folder_label.grid(row=1, column=0, padx=10, pady=10)
 
 folder_path = Entry(root, width=50)
-folder_path.grid(row=0, column=1, padx=10, pady=10)
+folder_path.grid(row=1, column=1, padx=10, pady=10)
 
 folder_button = Button(root, text="Выбрать", command=select_folder)
-folder_button.grid(row=0, column=2, padx=10, pady=10)
+folder_button.grid(row=1, column=2, padx=10, pady=10)
 
 db_folder_label = Label(root, text="Выбрать папку для базы данных:")
-db_folder_label.grid(row=1, column=0, padx=10, pady=10)
+db_folder_label.grid(row=2, column=0, padx=10, pady=10)
 
 db_folder_path = Entry(root, width=50)
-db_folder_path.grid(row=1, column=1, padx=10, pady=10)
+db_folder_path.grid(row=2, column=1, padx=10, pady=10)
 
 db_folder_button = Button(root, text="Выбрать", command=select_db_folder)
-db_folder_button.grid(row=1, column=2, padx=10, pady=10)
+db_folder_button.grid(row=2, column=2, padx=10, pady=10)
+
+existing_db_button = Button(root, text="Выбрать старую БД", command=select_existing_db, state='disabled')
+existing_db_button.grid(row=3, column=0, columnspan=3, padx=10, pady=10)
 
 similarity_threshold_label = Label(root, text="Порог схожести:")
-similarity_threshold_label.grid(row=2, column=0, padx=10, pady=10)
+similarity_threshold_label.grid(row=4, column=0, padx=10, pady=10)
 
 similarity_threshold = IntVar(value=80)
 similarity_threshold_entry = Entry(root, textvariable=similarity_threshold, width=5)
-similarity_threshold_entry.grid(row=2, column=1, padx=10, pady=10, sticky="w")
+similarity_threshold_entry.grid(row=4, column=1, padx=10, pady=10, sticky="w")
 
 apply_button = Button(root, text="Применить", command=update_highlighting)
-apply_button.grid(row=2, column=2, padx=10, pady=10)
+apply_button.grid(row=4, column=2, padx=10, pady=10)
 
 monitor_rvt_ifc = IntVar(value=1)
 monitor_dwg_ifc = IntVar(value=0)
 
 rvt_ifc_checkbox = Checkbutton(root, text=".rvt и .ifc", variable=monitor_rvt_ifc)
-rvt_ifc_checkbox.grid(row=3, column=0, padx=10, pady=10)
+rvt_ifc_checkbox.grid(row=5, column=0, padx=10, pady=10)
 
 dwg_ifc_checkbox = Checkbutton(root, text=".dwg и .ifc", variable=monitor_dwg_ifc)
-dwg_ifc_checkbox.grid(row=3, column=1, padx=10, pady=10)
+dwg_ifc_checkbox.grid(row=5, column=1, padx=10, pady=10)
 
 start_button = Button(root, text="Начать мониторинг", command=start_monitoring)
-start_button.grid(row=4, column=0, columnspan=3, padx=10, pady=20)
+start_button.grid(row=6, column=0, columnspan=3, padx=10, pady=20)
 
 columns = ("Имя файла", "Родительская Папка", "Путь", "Последнее Изменение", "Создано")
 tree = ttk.Treeview(root, columns=columns, show="headings")
@@ -378,9 +407,9 @@ tree.heading("Родительская Папка", text="Родительска
 tree.heading("Путь", text="Путь")
 tree.heading("Последнее Изменение", text="Последнее Изменение")
 tree.heading("Создано", text="Создано")
-tree.grid(row=5, column=0, columnspan=3, padx=10, pady=20, sticky="nsew")
+tree.grid(row=7, column=0, columnspan=3, padx=10, pady=20, sticky="nsew")
 
-root.grid_rowconfigure(5, weight=1)
+root.grid_rowconfigure(7, weight=1)
 root.grid_columnconfigure(1, weight=1)
 
 tree.tag_configure("highlight", background="lightgreen")
@@ -389,13 +418,13 @@ tree.tag_configure("dwg", background="lavender")
 tree.tag_configure("ifc", background="lightyellow")
 
 pdf_button = Button(root, text="В PDF", command=create_pdf_report)
-pdf_button.grid(row=6, column=0, padx=10, pady=10)
+pdf_button.grid(row=8, column=0, padx=10, pady=10)
 
 excel_button = Button(root, text="В Excel", command=export_to_excel)
-excel_button.grid(row=6, column=1, padx=10, pady=10)
+excel_button.grid(row=8, column=1, padx=10, pady=10)
 
 copy_button = Button(root, text="Скопировать путь", command=copy_path)
-copy_button.grid(row=6, column=2, padx=10, pady=10)
+copy_button.grid(row=8, column=2, padx=10, pady=10)
 
 root.mainloop()
 
