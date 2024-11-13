@@ -14,10 +14,15 @@ from reportlab.lib.pagesizes import letter, landscape
 import openpyxl
 from openpyxl.styles import Font
 
-def connect_to_database(db_path):
+
+def connect_to_database(db_folder, folder_name):
     global conn, cursor
+    db_name = f"BD_{folder_name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.db"
+    db_path = os.path.join(db_folder, db_name)
+
     if os.path.exists(db_path):
         os.remove(db_path)
+
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
@@ -31,7 +36,8 @@ def connect_to_database(db_path):
         )
     ''')
     conn.commit()
-    messagebox.showinfo("Информация", "Подключение к базе данных успешно!")
+    messagebox.showinfo("Информация", f"Подключение к базе данных '{db_name}' успешно!")
+
 
 def update_file_in_db(parent_folder, path, filename, last_modified, created_by):
     cursor.execute('''
@@ -41,11 +47,13 @@ def update_file_in_db(parent_folder, path, filename, last_modified, created_by):
     conn.commit()
     update_table()
 
+
 def are_filenames_similar(name1, name2, threshold=80):
     base1, _ = os.path.splitext(name1)
     base2, _ = os.path.splitext(name2)
     similarity = fuzz.ratio(base1, base2)
     return similarity >= threshold
+
 
 def apply_highlighting():
     for row in tree.get_children():
@@ -74,14 +82,15 @@ def apply_highlighting():
                 if i < j:
                     if are_filenames_similar(file1[3], file2[3], threshold) and file1[4][:10] == file2[4][:10]:
                         if (file1[3].endswith(".rvt") and file2[3].endswith(".ifc")) or \
-                           (file1[3].endswith(".ifc") and file2[3].endswith(".rvt")) or \
-                           (file1[3].endswith(".dwg") and file2[3].endswith(".ifc")) or \
-                           (file1[3].endswith(".ifc") and file2[3].endswith(".dwg")):
+                                (file1[3].endswith(".ifc") and file2[3].endswith(".rvt")) or \
+                                (file1[3].endswith(".dwg") and file2[3].endswith(".ifc")) or \
+                                (file1[3].endswith(".ifc") and file2[3].endswith(".dwg")):
                             for f in (file1, file2):
                                 for row in tree.get_children():
                                     if tree.item(row, "values")[2] == f[2]:
                                         current_tags = tree.item(row, "tags")
                                         tree.item(row, tags=current_tags + ("highlight",))
+
 
 def update_table():
     for row in tree.get_children():
@@ -93,6 +102,7 @@ def update_table():
         tag = 'rvt' if filename.endswith('.rvt') else ('dwg' if filename.endswith('.dwg') else 'ifc')
         tree.insert('', 'end', values=row, tags=(tag,))
     apply_highlighting()
+
 
 def wrap_text(text, max_width, font, font_size, pdf_canvas):
     words = text.split(' ')
@@ -107,6 +117,7 @@ def wrap_text(text, max_width, font, font_size, pdf_canvas):
     lines.append(current_line)
     return lines
 
+
 def create_pdf_report():
     highlighted_files = []
     for row in tree.get_children():
@@ -118,16 +129,13 @@ def create_pdf_report():
         messagebox.showwarning("Предупреждение", "Нет совпадающих файлов для генерации отчета.")
         return
 
-    save_path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF Files", "*.pdf")])
-    if not save_path:
+    save_folder = filedialog.askdirectory()
+    if not save_folder:
         return
-
-    if save_path.endswith(".pdf"):
-        save_path = os.path.dirname(save_path)
 
     root_folder_name = os.path.basename(folder_path.get())
     report_name = f"{root_folder_name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.pdf"
-    pdf_path = os.path.join(save_path, report_name)
+    pdf_path = os.path.join(save_folder, report_name)
 
     font_path = r"C:\Windows\Fonts\arial.ttf"
     pdfmetrics.registerFont(TTFont('Arial', font_path))
@@ -189,6 +197,7 @@ def create_pdf_report():
     c.save()
     messagebox.showinfo("Информация", f"Отчет сохранен в {pdf_path}")
 
+
 def export_to_excel():
     highlighted_files = []
     for row in tree.get_children():
@@ -220,6 +229,7 @@ def export_to_excel():
     workbook.save(save_path)
     messagebox.showinfo("Информация", f"Excel отчет сохранен в {save_path}")
 
+
 def copy_path():
     selected_item = tree.focus()
     if not selected_item:
@@ -229,6 +239,7 @@ def copy_path():
     root.clipboard_clear()
     root.clipboard_append(path)
     messagebox.showinfo("Информация", f"Путь скопирован в буфер обмена:\n{path}")
+
 
 def scan_work_folders(root_folder):
     file_extensions = []
@@ -246,6 +257,7 @@ def scan_work_folders(root_folder):
                     last_modified = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
                     created_by = getpass.getuser()
                     update_file_in_db(parent_folder, file_path, filename, last_modified, created_by)
+
 
 class FileMonitorHandler(FileSystemEventHandler):
     def process_file(self, event):
@@ -274,32 +286,46 @@ class FileMonitorHandler(FileSystemEventHandler):
             conn.commit()
             update_table()
 
+
 def select_folder():
     selected_folder = filedialog.askdirectory()
     if selected_folder:
         folder_path.delete(0, 'end')
         folder_path.insert(0, selected_folder)
 
-def select_db_path():
-    selected_db = filedialog.asksaveasfilename(defaultextension=".db", filetypes=[("SQLite Database", "*.db")])
-    if selected_db:
-        db_path.delete(0, 'end')
-        db_path.insert(0, selected_db)
-        connect_to_database(selected_db)
+
+def select_db_folder():
+    selected_db_folder = filedialog.askdirectory()
+    if selected_db_folder:
+        db_folder_path.delete(0, 'end')
+        db_folder_path.insert(0, selected_db_folder)
+
 
 def start_monitoring():
     path = folder_path.get()
+    db_folder = db_folder_path.get()
+
     if not path:
         messagebox.showerror("Ошибка", "Пожалуйста, выберите папку для мониторинга.")
         return
+
+    if not db_folder:
+        messagebox.showerror("Ошибка", "Пожалуйста, выберите папку для сохранения базы данных.")
+        return
+
+    folder_name = os.path.basename(path)
+    connect_to_database(db_folder, folder_name)
+
     scan_work_folders(path)
     event_handler = FileMonitorHandler()
     observer = Observer()
     observer.schedule(event_handler, path=path, recursive=True)
     observer.start()
 
+
 def update_highlighting():
     apply_highlighting()
+
 
 root = Tk()
 root.title("Мониторинг и генерация отчетов")
@@ -314,14 +340,14 @@ folder_path.grid(row=0, column=1, padx=10, pady=10)
 folder_button = Button(root, text="Выбрать", command=select_folder)
 folder_button.grid(row=0, column=2, padx=10, pady=10)
 
-db_label = Label(root, text="Выбрать базу данных:")
-db_label.grid(row=1, column=0, padx=10, pady=10)
+db_folder_label = Label(root, text="Выбрать папку для базы данных:")
+db_folder_label.grid(row=1, column=0, padx=10, pady=10)
 
-db_path = Entry(root, width=50)
-db_path.grid(row=1, column=1, padx=10, pady=10)
+db_folder_path = Entry(root, width=50)
+db_folder_path.grid(row=1, column=1, padx=10, pady=10)
 
-db_button = Button(root, text="Выбрать", command=select_db_path)
-db_button.grid(row=1, column=2, padx=10, pady=10)
+db_folder_button = Button(root, text="Выбрать", command=select_db_folder)
+db_folder_button.grid(row=1, column=2, padx=10, pady=10)
 
 similarity_threshold_label = Label(root, text="Порог схожести:")
 similarity_threshold_label.grid(row=2, column=0, padx=10, pady=10)
@@ -333,7 +359,6 @@ similarity_threshold_entry.grid(row=2, column=1, padx=10, pady=10, sticky="w")
 apply_button = Button(root, text="Применить", command=update_highlighting)
 apply_button.grid(row=2, column=2, padx=10, pady=10)
 
-# Настройка для выбора расширений файлов
 monitor_rvt_ifc = IntVar(value=1)
 monitor_dwg_ifc = IntVar(value=0)
 
